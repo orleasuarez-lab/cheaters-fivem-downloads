@@ -260,7 +260,9 @@ def admin():
         '<main class="wrap"><section class="adminhead"><div class="tag">Área protegida</div><h1>Painel administrativo</h1>' +
         '<p class="muted">Envie arquivos para a biblioteca. <a href="/admin/logout">Sair</a></p></section>' +
         warning + '<section class="panel"><h2>Adicionar arquivo</h2><p class="muted">Escolha um arquivo no celular ou computador e toque em adicionar.</p>' +
-        '<form id="fileForm"><label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required accept=".zip,.rar,.7z,.dll,.asi,.lua,.ytd,.yft,.ymap,.ymf,.meta,.ini,.cfg,.json,.txt,.png,.jpg,.jpeg">' +
+        '<form id="fileForm"><label for="productName">Nome do produto</label><input id="productName" maxlength="100" required placeholder="Ex.: Pack de veículos">' +
+        '<label for="productDescription">Descrição do produto</label><textarea id="productDescription" maxlength="500" placeholder="Descreva o conteúdo do arquivo"></textarea>' +
+        '<label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required accept=".zip,.rar,.7z,.dll,.asi,.lua,.ytd,.yft,.ymap,.ymf,.meta,.ini,.cfg,.json,.txt,.png,.jpg,.jpeg">' +
         '<div class="actions"><button class="btn" id="addFileButton" type="submit">Adicionar arquivo</button></div><div class="muted" id="status" role="status"></div></form>' +
         '<p class="muted">Limite: 25 MB por arquivo. Formatos permitidos: ZIP, RAR, 7Z, DLL, ASI e arquivos comuns de recursos FiveM.</p></section>' +
         '<section class="panel"><h2>Arquivos publicados</h2>' + items_html + '</section></main>' +
@@ -269,7 +271,7 @@ def admin():
     scripts = """<script>
 const CSRF=""" + json.dumps(csrf_token()) + """;
 const form=document.getElementById('fileForm'),input=document.getElementById('uploadFile'),button=document.getElementById('addFileButton'),status=document.getElementById('status');
-form.addEventListener('submit',async e=>{e.preventDefault();if(!input.files.length)return;const data=new FormData();data.append('file',input.files[0]);button.disabled=true;status.textContent='Enviando arquivo...';try{const response=await fetch('/api/admin/files',{method:'POST',headers:{'X-CSRF-Token':CSRF},body:data});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.error||'Não foi possível enviar o arquivo.');status.textContent='Arquivo adicionado!';location.reload()}catch(err){status.textContent=err.message;button.disabled=false}});
+form.addEventListener('submit',async e=>{e.preventDefault();if(!input.files.length)return;const data=new FormData();data.append('file',input.files[0]);data.append('name',document.getElementById('productName').value);data.append('description',document.getElementById('productDescription').value);button.disabled=true;status.textContent='Enviando arquivo...';try{const response=await fetch('/api/admin/files',{method:'POST',headers:{'X-CSRF-Token':CSRF},body:data});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.error||'Não foi possível enviar o arquivo.');status.textContent='Arquivo adicionado!';location.reload()}catch(err){status.textContent=err.message;button.disabled=false}});
 async function deleteItem(id){if(!confirm('Excluir este item da biblioteca?'))return;try{const response=await fetch('/api/admin/links/'+id,{method:'DELETE',headers:{'X-CSRF-Token':CSRF}});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.error||'Não foi possível excluir.');location.reload()}catch(err){alert(err.message)}}
 </script>"""
 
@@ -364,15 +366,19 @@ def upload_file():
         return jsonify(error="O arquivo está vazio."), 400
     if len(file_bytes) > 25 * 1024 * 1024:
         return jsonify(error="O arquivo ultrapassa o limite de 25 MB."), 413
+    product_name = request.form.get("name", "").strip()[:100]
+    product_description = request.form.get("description", "").strip()[:500]
+    if not product_name:
+        return jsonify(error="Digite o nome do produto."), 400
     stored_name = uuid.uuid4().hex[:12] + "-" + original_name[:100]
     try:
         raw_url, file_sha = store_uploaded_file(stored_name, file_bytes)
         entry = {
             "id": str(uuid.uuid4()),
-            "name": original_name,
+            "name": product_name,
             "file_name": original_name,
             "category": "Arquivo",
-            "description": "Arquivo disponibilizado pela equipe Cheaters FiveM.",
+            "description": product_description or "Arquivo disponibilizado pela equipe Cheaters FiveM.",
             "url": raw_url,
             "file_path": GITHUB_UPLOADS_PATH + "/" + stored_name,
             "file_sha": file_sha,
