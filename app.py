@@ -23,7 +23,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 12,
-    MAX_CONTENT_LENGTH=20 * 1024 * 1024,
+    MAX_CONTENT_LENGTH=30 * 1024 * 1024,
 )
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
@@ -262,7 +262,7 @@ def admin():
         warning + '<section class="panel"><h2>Adicionar arquivo</h2><p class="muted">Escolha um arquivo no celular ou computador e toque em adicionar.</p>' +
         '<form id="fileForm"><label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required accept=".zip,.rar,.7z,.dll,.asi,.lua,.ytd,.yft,.ymap,.ymf,.meta,.ini,.cfg,.json,.txt,.png,.jpg,.jpeg">' +
         '<div class="actions"><button class="btn" id="addFileButton" type="submit">Adicionar arquivo</button></div><div class="muted" id="status" role="status"></div></form>' +
-        '<p class="muted">Limite: 15 MB por arquivo. Formatos permitidos: ZIP, RAR, 7Z, DLL, ASI e arquivos comuns de recursos FiveM.</p></section>' +
+        '<p class="muted">Limite: 25 MB por arquivo. Formatos permitidos: ZIP, RAR, 7Z, DLL, ASI e arquivos comuns de recursos FiveM.</p></section>' +
         '<section class="panel"><h2>Arquivos publicados</h2>' + items_html + '</section></main>' +
         '<footer><div class="wrap foot"><span>Cheaters FiveM · Administração</span><span>Não compartilhe sua senha.</span></div></footer>'
     )
@@ -359,11 +359,11 @@ def upload_file():
     allowed = {".zip", ".rar", ".7z", ".dll", ".asi", ".lua", ".ytd", ".yft", ".ymap", ".ymf", ".meta", ".ini", ".cfg", ".json", ".txt", ".png", ".jpg", ".jpeg"}
     if not original_name or extension not in allowed:
         return jsonify(error="Esse tipo de arquivo não está permitido. Escolha um arquivo compatível com FiveM."), 400
-    file_bytes = uploaded.read(15 * 1024 * 1024 + 1)
+    file_bytes = uploaded.read(25 * 1024 * 1024 + 1)
     if not file_bytes:
         return jsonify(error="O arquivo está vazio."), 400
-    if len(file_bytes) > 15 * 1024 * 1024:
-        return jsonify(error="O arquivo ultrapassa o limite de 15 MB."), 413
+    if len(file_bytes) > 25 * 1024 * 1024:
+        return jsonify(error="O arquivo ultrapassa o limite de 25 MB."), 413
     stored_name = uuid.uuid4().hex[:12] + "-" + original_name[:100]
     try:
         raw_url, file_sha = store_uploaded_file(stored_name, file_bytes)
