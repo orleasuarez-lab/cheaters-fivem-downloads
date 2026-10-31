@@ -301,7 +301,8 @@ def upload_chunk():
     current = temp_path.stat().st_size if temp_path.exists() else 0
     if current != offset or offset + request.content_length > total + 1024 * 1024:
         return jsonify(error="Parte fora de ordem. Reinicie o envio."), 409
-    with open(temp_path, "ab") as target:\n        shutil.copyfileobj(chunk.stream, target, length=1024 * 1024)
+    with open(temp_path, "ab") as target:
+        shutil.copyfileobj(chunk.stream, target, length=1024 * 1024)
     written = temp_path.stat().st_size
     if written > total:
         temp_path.unlink(missing_ok=True)
