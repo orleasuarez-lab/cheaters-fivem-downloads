@@ -262,9 +262,9 @@ def admin():
         warning + '<section class="panel"><h2>Adicionar arquivo</h2><p class="muted">Escolha um arquivo no celular ou computador e toque em adicionar.</p>' +
         '<form id="fileForm"><label for="productName">Nome do produto</label><input id="productName" maxlength="100" required placeholder="Ex.: Pack de veículos">' +
         '<label for="productDescription">Descrição do produto</label><textarea id="productDescription" maxlength="500" placeholder="Descreva o conteúdo do arquivo"></textarea>' +
-        '<label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required accept=".zip,.rar,.7z,.dll,.asi,.lua,.ytd,.yft,.ymap,.ymf,.meta,.ini,.cfg,.json,.txt,.png,.jpg,.jpeg">' +
+        '<label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required>' +
         '<div class="actions"><button class="btn" id="addFileButton" type="submit">Adicionar arquivo</button></div><div class="muted" id="status" role="status"></div></form>' +
-        '<p class="muted">Limite: 25 MB por arquivo. Formatos permitidos: ZIP, RAR, 7Z, DLL, ASI e arquivos comuns de recursos FiveM.</p></section>' +
+        '<p class="muted">Limite: 25 MB por arquivo. Todos os formatos de arquivo são aceitos.</p></section>' +
         '<section class="panel"><h2>Arquivos publicados</h2>' + items_html + '</section></main>' +
         '<footer><div class="wrap foot"><span>Cheaters FiveM · Administração</span><span>Não compartilhe sua senha.</span></div></footer>'
     )
@@ -357,10 +357,8 @@ def upload_file():
         return jsonify(error="Selecione um arquivo primeiro."), 400
     from werkzeug.utils import secure_filename
     original_name = secure_filename(uploaded.filename)
-    extension = os.path.splitext(original_name)[1].lower()
-    allowed = {".zip", ".rar", ".7z", ".dll", ".asi", ".lua", ".ytd", ".yft", ".ymap", ".ymf", ".meta", ".ini", ".cfg", ".json", ".txt", ".png", ".jpg", ".jpeg"}
-    if not original_name or extension not in allowed:
-        return jsonify(error="Esse tipo de arquivo não está permitido. Escolha um arquivo compatível com FiveM."), 400
+    if not original_name:
+        return jsonify(error="Não foi possível identificar o nome do arquivo. Renomeie e tente novamente."), 400
     file_bytes = uploaded.read(25 * 1024 * 1024 + 1)
     if not file_bytes:
         return jsonify(error="O arquivo está vazio."), 400
@@ -427,7 +425,7 @@ def health():
 
 @app.errorhandler(413)
 def too_large(_):
-    return jsonify(error="O envio ultrapassa o limite permitido de 15 MB."), 413
+    return jsonify(error="O envio ultrapassa o limite permitido de 25 MB."), 413
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))
