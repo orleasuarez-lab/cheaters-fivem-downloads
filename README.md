@@ -1,32 +1,44 @@
 # Cheaters FiveM — Central de downloads
 
-Aplicação Flask para publicar arquivos e disponibilizar downloads públicos.
+Site Flask com catálogo público de links e painel administrativo protegido por senha.
 
-## Render
+## Render (plano gratuito)
 
 - Runtime: Python
 - Build: `pip install -r requirements.txt`
 - Start: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120`
-- Região recomendada: Ohio (mais próxima de São Paulo entre as regiões disponíveis)
-- Configure as variáveis de ambiente descritas abaixo.
+- Plano: Free
+- Health check: `/health`
 
 ## Variáveis de ambiente
 
-- `ADMIN_EMAIL`: e-mail administrativo autorizado.
-- `SECRET_KEY`: chave aleatória longa e privada.
-- `RESEND_API_KEY`: chave de API do Resend para enviar códigos de acesso.
-- `MAIL_FROM`: remetente verificado no Resend, por exemplo `Cheaters FiveM <downloads@seudominio.com>`.
-- `DATA_DIR`: `/var/data` quando o disco persistente estiver montado.
-- `PERSISTENT_STORAGE`: mantenha `no` até conectar e testar um Render Disk em `/var/data`; depois altere para `yes`.
-- `MAX_FILE_SIZE`: limite máximo por arquivo em bytes (padrão: 50 GiB).
+Configure em Render → serviço → Environment:
 
-## Armazenamento persistente
+- `ADMIN_PASSWORD`: senha privada do painel (já configurada no serviço).
+- `SECRET_KEY`: chave aleatória longa para assinar sessões.
+- `GITHUB_TOKEN`: Fine-grained personal access token com acesso somente a este repositório e permissão **Contents: Read and write**.
+- `GITHUB_REPOSITORY`: `orleasuarez-lab/cheaters-fivem-downloads`
+- `GITHUB_BRANCH`: `main`
+- `GITHUB_DATA_PATH`: `links.json`
 
-Anexe um Render Disk ao serviço com mount path `/var/data`. O app mantém o banco SQLite e os arquivos dentro de `DATA_DIR`. Os uploads ficam deliberadamente bloqueados enquanto `PERSISTENT_STORAGE=no`, para não dar a impressão de que os arquivos estão protegidos quando o disco ainda não está montado.
+Não coloque o token no código, no navegador ou em mensagens. Salve-o apenas como variável secreta no Render. Não compartilhe a senha do painel.
+
+## Como funciona
+
+- Visitantes veem os links publicados na página inicial e podem pesquisar por nome, descrição ou categoria.
+- O administrador entra em `/admin`, adiciona links HTTPS, edita e exclui itens.
+- Os arquivos ficam em serviços externos; este site guarda somente os links e as descrições.
+- O catálogo é lido e atualizado pelo GitHub Contents API em `links.json`. Assim, os registros não dependem do disco temporário do Render.
+- O token é usado somente no servidor e nunca é enviado ao navegador.
+
+## Limites
+
+O site e o serviço Render estão configurados no plano gratuito, sujeito aos limites e às políticas dos provedores. Os links apontam para serviços externos, que podem ter limites próprios, exigir login ou remover arquivos. Não há hospedagem de arquivos nem promessa de armazenamento ilimitado.
 
 ## Segurança
 
-- Apenas `ADMIN_EMAIL` pode receber o código de acesso.
-- Códigos expiram em 10 minutos e têm até 5 tentativas.
-- Cookies de sessão são HTTP-only, Secure e SameSite=Lax.
-- Upload em partes, fora da pasta pública; arquivos só são entregues pelo endpoint de download.
+- Senha administrativa armazenada como variável de ambiente.
+- Cookies HTTP-only, Secure e SameSite=Lax.
+- Proteção CSRF nas operações administrativas.
+- Bloqueio temporário após tentativas repetidas de senha.
+- Apenas URLs HTTPS são aceitas para publicação.
