@@ -23,7 +23,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="Lax",
     PERMANENT_SESSION_LIFETIME=60 * 60 * 12,
-    MAX_CONTENT_LENGTH=64 * 1024,
+    MAX_CONTENT_LENGTH=20 * 1024 * 1024,
 )
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
@@ -31,6 +31,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "").strip()
 GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "orleasuarez-lab/cheaters-fivem-downloads").strip()
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main").strip()
 GITHUB_DATA_PATH = os.environ.get("GITHUB_DATA_PATH", "links.json").strip()
+GITHUB_UPLOADS_PATH = os.environ.get("GITHUB_UPLOADS_PATH", "uploads").strip().strip("/")
 
 BASE_STYLE = """
 :root{color-scheme:dark;--bg:#080a10;--panel:#111722;--panel2:#161f2d;--line:#253247;--text:#f4f6fb;--muted:#9ba8bc;--purple:#8b72ff;--cyan:#57d6df;--green:#62d6a2;--red:#ff7187}
@@ -91,8 +92,15 @@ def github_api(method, path, payload=None):
             return None
         if exc.code in (409, 422):
             raise RuntimeError("O catálogo mudou ao mesmo tempo. Tente novamente.") from exc
-        if exc.code == 401 or exc.code == 403:
-            raise RuntimeError("O GitHub recusou a chave. Confira as permissões do GITHUB_TOKEN no Render.") from exc
+        if exc.code == 401:
+            raise RuntimeError("GitHub não aceitou o token (401). Ele pode estar incorreto, revogado ou expirado. Confira GITHUB_TOKEN no Render.") from exc
+        if exc.code == 403:
+            try:
+                api_message = json.loads(detail).get("message", "")
+            except (ValueError, AttributeError):
+                api_message = ""
+            extra = (" Detalhe do GitHub: " + api_message) if api_message else ""
+            raise RuntimeError("GitHub bloqueou a operação (403). Confira se o token tem acesso ao repositório e permissão Contents: Read and write." + extra) from exc
         raise RuntimeError("Falha ao acessar o GitHub (" + str(exc.code) + ").") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise RuntimeError("Não foi possível conectar ao GitHub agora.") from exc
@@ -125,6 +133,18 @@ def write_catalog(items):
     if current is not None:
         payload["sha"] = current["sha"]
     github_api("PUT", path, payload)
+
+def store_uploaded_file(filename, file_bytes):
+    safe_path = GITHUB_UPLOADS_PATH + "/" + filename
+    encoded_path = urllib.parse.quote(safe_path, safe="/")
+    payload = {
+        "message": "Adiciona arquivo ao catálogo Cheaters FiveM",
+        "content": base64.b64encode(file_bytes).decode("ascii"),
+        "branch": GITHUB_BRANCH,
+    }
+    result = github_api("PUT", "/repos/" + GITHUB_REPOSITORY + "/contents/" + encoded_path, payload)
+    raw_url = "https://raw.githubusercontent.com/" + GITHUB_REPOSITORY + "/" + urllib.parse.quote(GITHUB_BRANCH, safe="") + "/" + urllib.parse.quote(safe_path, safe="/")
+    return raw_url, result.get("content", {}).get("sha", "")
 
 def mutate_catalog(change):
     last_error = None
@@ -228,9 +248,8 @@ def admin():
     for item in items:
         rows.append(
             '<div class="rowitem"><div><div class="rowtitle">' + escape(item.get("name")) + '</div>' +
-            '<div class="rowdesc">' + escape(item.get("category")) + ' · ' + escape(item.get("url")) + '</div></div>' +
-            '<div class="rowactions"><button class="btn secondary" onclick="editItem(' + json.dumps(item.get("id", "")) + ')">Editar</button>' +
-            '<button class="btn danger" onclick="deleteItem(' + json.dumps(item.get("id", "")) + ')">Excluir</button></div></div>'
+            '<div class="rowdesc">' + escape(item.get("category") or "Arquivo") + ' · ' + escape(item.get("file_name") or "Link externo") + '</div></div>' +
+            '<div class="rowactions"><button class="btn danger" onclick="deleteItem(' + json.dumps(item.get("id", "")) + ')">Excluir</button></div></div>'
         )
     items_html = "".join(rows) or '<p class="muted">Ainda não há links cadastrados.</p>'
     warning = '<div class="notice">' + escape(error) + '</div>' if error else ""
@@ -239,26 +258,21 @@ def admin():
     body = (
         '<header><div class="wrap nav"><a class="brand" href="/">CHEATERS <b>FIVEM</b></a><a class="navlink" href="/">Ver site ↗</a></div></header>' +
         '<main class="wrap"><section class="adminhead"><div class="tag">Área protegida</div><h1>Painel administrativo</h1>' +
-        '<p class="muted">Gerencie os links que aparecem na página pública. <a href="/admin/logout">Sair</a></p></section>' +
-        warning + '<section class="panel"><h2>Adicionar download</h2><p class="muted">Cadastre um link HTTPS de um serviço externo. O site não recebe nem armazena o arquivo.</p>' +
-        '<form id="linkForm"><div class="formgrid"><div><label for="name">Nome do download</label><input id="name" maxlength="100" required placeholder="Ex.: Pacote de recursos"></div>' +
-        '<div><label for="category">Categoria</label><input id="category" maxlength="40" placeholder="Ex.: Scripts, Mapas, Utilitários"></div></div>' +
-        '<label for="description">Descrição</label><textarea id="description" maxlength="500" placeholder="Explique o que o link contém (opcional)"></textarea>' +
-        '<label for="url">Link de download (HTTPS)</label><input id="url" type="url" maxlength="2048" required placeholder="https://...">' +
-        '<div class="actions"><button class="btn" id="saveButton" type="submit">Publicar link</button><button class="btn secondary" id="cancelEdit" type="button" hidden>Cancelar edição</button></div><div class="muted" id="status" role="status"></div></form></section>' +
-        '<section class="panel"><h2>Links publicados</h2>' + items_html + '</section></main>' +
+        '<p class="muted">Envie arquivos para a biblioteca. <a href="/admin/logout">Sair</a></p></section>' +
+        warning + '<section class="panel"><h2>Adicionar arquivo</h2><p class="muted">Escolha um arquivo no celular ou computador e toque em adicionar.</p>' +
+        '<form id="fileForm"><label for="uploadFile">Selecionar arquivo</label><input id="uploadFile" name="file" type="file" required accept=".zip,.rar,.7z,.dll,.asi,.lua,.ytd,.yft,.ymap,.ymf,.meta,.ini,.cfg,.json,.txt,.png,.jpg,.jpeg">' +
+        '<div class="actions"><button class="btn" id="addFileButton" type="submit">Adicionar arquivo</button></div><div class="muted" id="status" role="status"></div></form>' +
+        '<p class="muted">Limite: 15 MB por arquivo. Formatos permitidos: ZIP, RAR, 7Z, DLL, ASI e arquivos comuns de recursos FiveM.</p></section>' +
+        '<section class="panel"><h2>Arquivos publicados</h2>' + items_html + '</section></main>' +
         '<footer><div class="wrap foot"><span>Cheaters FiveM · Administração</span><span>Não compartilhe sua senha.</span></div></footer>'
     )
     scripts = """<script>
 const CSRF=""" + json.dumps(csrf_token()) + """;
-let editing=null;const form=document.getElementById('linkForm'),status=document.getElementById('status'),save=document.getElementById('saveButton'),cancel=document.getElementById('cancelEdit');
-async function api(url,method,body){const response=await fetch(url,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:body?JSON.stringify(body):undefined});let data={};try{data=await response.json()}catch{}if(!response.ok)throw new Error(data.error||'Não foi possível concluir.');return data;}
-form.addEventListener('submit',async e=>{e.preventDefault();save.disabled=true;status.textContent='Salvando...';const payload={name:document.getElementById('name').value,category:document.getElementById('category').value,description:document.getElementById('description').value,url:document.getElementById('url').value};try{await api(editing?'/api/admin/links/'+editing:'/api/admin/links',editing?'PATCH':'POST',payload);status.textContent='Link salvo!';location.reload()}catch(err){status.textContent=err.message;save.disabled=false}});
-function editItem(id){const item=window.CATALOG.find(x=>x.id===id);if(!item)return;editing=id;document.getElementById('name').value=item.name;document.getElementById('category').value=item.category||'';document.getElementById('description').value=item.description||'';document.getElementById('url').value=item.url;save.textContent='Salvar alterações';cancel.hidden=false;document.getElementById('name').focus();window.scrollTo({top:0,behavior:'smooth'})}
-cancel.addEventListener('click',()=>{editing=null;form.reset();save.textContent='Publicar link';cancel.hidden=true;status.textContent=''});
-async function deleteItem(id){if(!confirm('Excluir este link do catálogo?'))return;try{await api('/api/admin/links/'+id,'DELETE');location.reload()}catch(err){alert(err.message)}}
+const form=document.getElementById('fileForm'),input=document.getElementById('uploadFile'),button=document.getElementById('addFileButton'),status=document.getElementById('status');
+form.addEventListener('submit',async e=>{e.preventDefault();if(!input.files.length)return;const data=new FormData();data.append('file',input.files[0]);button.disabled=true;status.textContent='Enviando arquivo...';try{const response=await fetch('/api/admin/files',{method:'POST',headers:{'X-CSRF-Token':CSRF},body:data});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.error||'Não foi possível enviar o arquivo.');status.textContent='Arquivo adicionado!';location.reload()}catch(err){status.textContent=err.message;button.disabled=false}});
+async function deleteItem(id){if(!confirm('Excluir este item da biblioteca?'))return;try{const response=await fetch('/api/admin/links/'+id,{method:'DELETE',headers:{'X-CSRF-Token':CSRF}});let result={};try{result=await response.json()}catch{}if(!response.ok)throw new Error(result.error||'Não foi possível excluir.');location.reload()}catch(err){alert(err.message)}}
 </script>"""
-    scripts = scripts.replace("</script>", "window.CATALOG=" + json.dumps(items, ensure_ascii=False).replace("</", "<\\/") + ";</script>")
+
     return page("Administração", body, scripts)
 
 LOGIN_HTML = """
@@ -331,6 +345,44 @@ def create_link():
     except RuntimeError as exc:
         return jsonify(error=str(exc)), 503
 
+@app.post("/api/admin/files")
+@admin_required
+def upload_file():
+    if not check_csrf():
+        return jsonify(error="Atualize a página e tente novamente."), 400
+    uploaded = request.files.get("file")
+    if not uploaded or not uploaded.filename:
+        return jsonify(error="Selecione um arquivo primeiro."), 400
+    from werkzeug.utils import secure_filename
+    original_name = secure_filename(uploaded.filename)
+    extension = os.path.splitext(original_name)[1].lower()
+    allowed = {".zip", ".rar", ".7z", ".dll", ".asi", ".lua", ".ytd", ".yft", ".ymap", ".ymf", ".meta", ".ini", ".cfg", ".json", ".txt", ".png", ".jpg", ".jpeg"}
+    if not original_name or extension not in allowed:
+        return jsonify(error="Esse tipo de arquivo não está permitido. Escolha um arquivo compatível com FiveM."), 400
+    file_bytes = uploaded.read(15 * 1024 * 1024 + 1)
+    if not file_bytes:
+        return jsonify(error="O arquivo está vazio."), 400
+    if len(file_bytes) > 15 * 1024 * 1024:
+        return jsonify(error="O arquivo ultrapassa o limite de 15 MB."), 413
+    stored_name = uuid.uuid4().hex[:12] + "-" + original_name[:100]
+    try:
+        raw_url, file_sha = store_uploaded_file(stored_name, file_bytes)
+        entry = {
+            "id": str(uuid.uuid4()),
+            "name": original_name,
+            "file_name": original_name,
+            "category": "Arquivo",
+            "description": "Arquivo disponibilizado pela equipe Cheaters FiveM.",
+            "url": raw_url,
+            "file_path": GITHUB_UPLOADS_PATH + "/" + stored_name,
+            "file_sha": file_sha,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        mutate_catalog(lambda items: items.insert(0, entry))
+        return jsonify(ok=True, item=entry), 201
+    except RuntimeError as exc:
+        return jsonify(error=str(exc)), 503
+
 @app.route("/api/admin/links/<link_id>", methods=["PATCH", "DELETE"])
 @admin_required
 def update_link(link_id):
@@ -341,7 +393,14 @@ def update_link(link_id):
             for index, item in enumerate(items):
                 if item.get("id") == link_id:
                     if request.method == "DELETE":
-                        items.pop(index)
+                        removed = items.pop(index)
+                        if removed.get("file_path") and removed.get("file_sha"):
+                            encoded_path = urllib.parse.quote(removed["file_path"], safe="/")
+                            github_api("DELETE", "/repos/" + GITHUB_REPOSITORY + "/contents/" + encoded_path, {
+                                "message": "Remove arquivo do catálogo Cheaters FiveM",
+                                "sha": removed["file_sha"],
+                                "branch": GITHUB_BRANCH,
+                            })
                         return True
                     updated = validate_link(request.get_json(silent=True) or {})
                     item.update(updated)
@@ -362,7 +421,7 @@ def health():
 
 @app.errorhandler(413)
 def too_large(_):
-    return jsonify(error="Solicitação muito grande."), 413
+    return jsonify(error="O envio ultrapassa o limite permitido de 15 MB."), 413
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "10000")))
