@@ -25,7 +25,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="Lax",
 )
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "orleasuarez@gmail.com").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
 DATA_DIR = Path(os.environ.get("DATA_DIR", "./data")).resolve()
 FILES_DIR = DATA_DIR / "files"
 TEMP_DIR = DATA_DIR / "temporary"
@@ -73,7 +73,7 @@ def add_security_headers(response):
 def admin_required(fn):
     @wraps(fn)
     def wrapped(*args, **kwargs):
-        if session.get("admin_email") != ADMIN_EMAIL:
+        if session.get("is_admin") is not True:
             if request.path.startswith("/api/"):
                 return jsonify(error="Sessão administrativa necessária."), 401
             return redirect(url_for("admin_login"))
@@ -83,29 +83,6 @@ def admin_required(fn):
 def check_csrf():
     supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf")
     return bool(supplied and session.get("csrf") and hmac.compare_digest(supplied, session["csrf"]))
-
-def send_login_code(code):
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
-    mail_from = os.environ.get("MAIL_FROM", "").strip()
-    if not api_key or not mail_from:
-        raise RuntimeError("Falta configurar RESEND_API_KEY e MAIL_FROM no Render.")
-    payload = json.dumps({
-        "from": mail_from,
-        "to": [ADMIN_EMAIL],
-        "subject": "Seu código de acesso — Cheaters FiveM",
-        "html": "<div style='font-family:Arial,sans-serif;color:#171717'><h2>Cheaters FiveM</h2><p>Seu código de acesso:</p><p style='font-size:30px;font-weight:700;letter-spacing:8px'>" + code + "</p><p>Ele expira em 10 minutos. Se você não solicitou, ignore este e-mail.</p></div>"
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://api.resend.com/emails", data=payload,
-        headers={"Authorization": "Bearer " + api_key, "Content-Type": "application/json"},
-        method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            if response.status not in (200, 201):
-                raise RuntimeError("O provedor de e-mail não aceitou o envio.")
-    except urllib.error.HTTPError as exc:
-        raise RuntimeError("Falha no envio do e-mail (HTTP " + str(exc.code) + ").") from exc
 
 BASE_STYLE = """
 :root{color-scheme:dark;--bg:#090b10;--panel:#11151e;--panel2:#171d29;--line:#252d3c;--text:#f2f5fa;--muted:#9aa5b5;--accent:#7c5cff;--accent2:#9a83ff;--red:#ff647c;--green:#49d49d}
@@ -183,7 +160,7 @@ def download(file_id):
 
 @app.get("/admin")
 def admin():
-    if session.get("admin_email") != ADMIN_EMAIL:
+    if session.get("is_admin") is not True:
         return redirect(url_for("admin_login"))
     token = csrf_token()
     with db() as con:
@@ -197,7 +174,7 @@ def admin():
         r["id"] + '\')">Excluir</button></div></div>' for r in rows
     ) or '<div class="hint">Nenhum arquivo publicado.</div>'
     body = """<header><div class="wrap nav"><a class="brand" href="/">CHEATERS <span>FIVEM</span></a><a href="/">Ver site ↗</a></div></header>
-    <main class="wrap"><section class="admin-head"><div class="eyebrow">Área restrita</div><h1 style="font-size:34px">Administração</h1><p class="quiet">Conectado como """ + html_escape(ADMIN_EMAIL) + """ · <a href="/admin/logout">Sair</a></p></section>
+    <main class="wrap"><section class="admin-head"><div class="eyebrow">Área restrita</div><h1 style="font-size:34px">Administração</h1><p class="quiet">Conectado como """ + "Administrador" + """ · <a href="/admin/logout">Sair</a></p></section>
     """ + notice + """
     <section class="panel"><h2>Adicionar arquivo</h2><p class="hint">Os arquivos são enviados em partes de 6 MB. Não feche esta página até o envio terminar.</p>
     <form id="uploadForm"><label>Arquivo</label><input type="file" id="file" required><label>Descrição</label><textarea id="description" placeholder="Explique o que é este arquivo (opcional)"></textarea>
@@ -215,62 +192,39 @@ async function editFile(id,name,desc){const next=prompt('Nome do arquivo:',name)
 LOGIN_HTML = """
 <header><div class="wrap nav"><a class="brand" href="/">CHEATERS <span>FIVEM</span></a><a href="/">Voltar ao site</a></div></header>
 <main class="wrap center"><section class="panel login"><div class="eyebrow">Acesso administrativo</div><h1>Entrar no painel</h1>
-<p class="hint">Enviaremos um código de verificação para o e-mail autorizado.</p>
+<p class="hint">Digite a senha de administrador.</p>
 {% if error %}<div class="notice">{{error}}</div>{% endif %}
-<form method="post" action="/admin/send-code"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn" type="submit" style="width:100%">Enviar código por e-mail</button></form>
-{% if sent %}<form method="post" action="/admin/verify"><input type="hidden" name="csrf" value="{{csrf}}"><label>Código de 6 dígitos</label><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required placeholder="000000"><button class="btn" style="width:100%;margin-top:14px">Confirmar código</button></form>{% endif %}
+<form method="post" action="/admin/login"><input type="hidden" name="csrf" value="{{csrf}}"><label>Senha</label><input type="password" name="password" autocomplete="current-password" required placeholder="Sua senha"><button class="btn" type="submit" style="width:100%;margin-top:14px">Entrar</button></form>
 </section></main>"""
 
-@app.get("/admin/login")
+@app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    if session.get("admin_email") == ADMIN_EMAIL:
+    if session.get("is_admin") is True:
         return redirect(url_for("admin"))
-    return page("Entrar", render_template_string(LOGIN_HTML, csrf=csrf_token(), error=request.args.get("error",""), sent=request.args.get("sent")=="1"))
-
-@app.post("/admin/send-code")
-def send_code():
-    if not check_csrf():
-        abort(400)
-    now = int(time.time())
-    with db() as con:
-        old = con.execute("SELECT last_sent FROM login_codes WHERE email=?", (ADMIN_EMAIL,)).fetchone()
-        if old and now - old["last_sent"] < 60:
-            return redirect(url_for("admin_login", error="Aguarde 1 minuto antes de pedir outro código."))
-        code = f"{secrets.randbelow(1000000):06d}"
-        digest = hmac.new(app.config["SECRET_KEY"].encode(), code.encode(), hashlib.sha256).hexdigest()
-        con.execute("INSERT OR REPLACE INTO login_codes(email,code_hash,expires_at,attempts,last_sent) VALUES(?,?,?,?,?)",
-                    (ADMIN_EMAIL, digest, now + 600, 0, now))
-    try:
-        send_login_code(code)
-    except Exception as exc:
-        app.logger.error("Falha ao enviar código de login: %s", str(exc))
-        return redirect(url_for("admin_login", error="O envio de e-mail ainda não está configurado no Render."))
-    return redirect(url_for("admin_login", sent="1"))
-
-@app.post("/admin/verify")
-def verify_code():
-    if not check_csrf():
-        abort(400)
-    code = re.sub(r"\D", "", request.form.get("code", ""))
-    if len(code) != 6:
-        return redirect(url_for("admin_login", sent="1", error="Código inválido."))
-    now = int(time.time())
-    digest = hmac.new(app.config["SECRET_KEY"].encode(), code.encode(), hashlib.sha256).hexdigest()
-    with db() as con:
-        row = con.execute("SELECT * FROM login_codes WHERE email=?", (ADMIN_EMAIL,)).fetchone()
-        if not row or row["expires_at"] < now or row["attempts"] >= 5:
-            con.execute("DELETE FROM login_codes WHERE email=?", (ADMIN_EMAIL,))
-            return redirect(url_for("admin_login", error="Código expirado. Solicite outro."))
-        if not hmac.compare_digest(row["code_hash"], digest):
-            con.execute("UPDATE login_codes SET attempts=attempts+1 WHERE email=?", (ADMIN_EMAIL,))
-            return redirect(url_for("admin_login", sent="1", error="Código incorreto."))
-        con.execute("DELETE FROM login_codes WHERE email=?", (ADMIN_EMAIL,))
-    session.clear()
-    session["admin_email"] = ADMIN_EMAIL
-    session["csrf"] = secrets.token_urlsafe(24)
-    session.permanent = True
-    app.permanent_session_lifetime = 12 * 60 * 60
-    return redirect(url_for("admin"))
+    error = request.args.get("error", "")
+    if request.method == "POST":
+        if not check_csrf():
+            abort(400)
+        now = int(time.time())
+        if int(session.get("login_lock_until", 0)) > now:
+            error = "Muitas tentativas. Aguarde alguns minutos."
+        elif not ADMIN_PASSWORD:
+            error = "A senha ainda não foi configurada no Render."
+        elif hmac.compare_digest(request.form.get("password", ""), ADMIN_PASSWORD):
+            session.clear()
+            session["is_admin"] = True
+            session["csrf"] = secrets.token_urlsafe(24)
+            session.permanent = True
+            app.permanent_session_lifetime = 12 * 60 * 60
+            return redirect(url_for("admin"))
+        else:
+            attempts = int(session.get("login_attempts", 0)) + 1
+            session["login_attempts"] = attempts
+            if attempts >= 5:
+                session["login_lock_until"] = now + 600
+                session["login_attempts"] = 0
+            error = "Senha incorreta."
+    return page("Entrar", render_template_string(LOGIN_HTML, csrf=csrf_token(), error=error))
 
 @app.get("/admin/logout")
 def logout():
