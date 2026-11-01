@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "id": "06f641f8-dd36-4f47-b294-6e27d9fd0342",
+    "name": "External FiveM",
+    "file_name": "Lion_Multiloader_1.0.32.exe",
+    "category": "Arquivo",
+    "description": "📁 EXTERNAL FILE — FIVEM\r\n\r\n⚙️ Possível erro: \"d3dx9_43.dll\"\r\n\r\n1. Baixe o DirectX oficial:\r\n   https://www.microsoft.com/en-us/download/details.aspx?id=8109\r\n\r\n2. Execute o arquivo baixado.\r\n\r\n3. Escolha uma pasta para extrair.\r\n\r\n4. Abra a pasta extraída.\r\n\r\n5 .Localize o arquivo DXSETUP.exe.\r\n\r\n6. Execute-o.\r\n\r\n7. Aguarde a instalação terminar.\r\n\r\n8. Reinicie o computador!\r\n\r\nObs: Windowns Defender tem que estar desativado pra funcionar!",
+    "url": "https://raw.githubusercontent.com/orleasuarez-lab/cheaters-fivem-downloads/main/uploads/d9741ab8593e-Lion_Multiloader_1.0.32.exe",
+    "file_path": "uploads/d9741ab8593e-Lion_Multiloader_1.0.32.exe",
+    "file_sha": "f2ea2ac79689b6a257b22e6454e206bdd23cefb3",
+    "created_at": "2026-11-01T00:06:23.216605+00:00"
+  }
+]
